@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#020617">
+<title>Flip Radar Pro</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+  body { background: #020617; -webkit-tap-highlight-color: transparent; }
+  [x-cloak] { display: none !important; }
+  input, textarea, select { font-size: 16px; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+<script>
+const rp = n => 'Rp ' + Math.round(+n || 0).toLocaleString('id-ID');
+const pct = n => (Math.round((+n || 0) * 10) / 10).toLocaleString('id-ID') + '%';
+
+
+const GEMINI_FALLBACK = ['gemini-flash-latest', 'gemini-2.5-flash-lite'];
+const GEMINI_PROMPT = 'Identifikasi produk di foto ini. Balas HANYA JSON valid tanpa markdown dengan kunci: nama_pencarian (nama produk lengkap dengan brand dan type, singkat, cocok untuk dicari di Google, misalnya Sharp ES-T8 mesin cuci 2 tabung), kategori, keyakinan (tinggi, sedang, atau rendah). Jika tidak yakin, isi nama_pencarian dengan deskripsi singkat produk dan jelaskan di keyakinan.';
+
+const APP_VERSI = '1.0';
+const AUTHOR_NAMA = 'Erka.Dev';
+const AUTHOR_KONTAK = 'erka.dev@google.com/erka.dev';
+
+function app() {
+  const KEY = 'flipradar_1jt_pro_v1';
+  const GKEY = 'flipradar_gemini_key';
+  const MODAL = 1000000;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+
+  return {
+    rp, pct,
+    modalAwal: Number(saved.modalAwal) || MODAL,
+    modalInput: null,
+    get MODAL() {
+      return this.modalAwal;
+    },
+    tab: 'radar',
+    tabs: [
+      { id: 'radar', n: 'Radar' },
+      { id: 'calc', n: 'Kalkulator' },
+      { id: 'nego', n: 'Nego & Copy' },
+      { id: 'scam', n: 'Anti-Scam' },
+      { id: 'foto', n: 'Cek Foto' },
+      { id: 'log', n: 'Log Modal' },
+    ],
+    menuOpen: false,
+    menuSection: '',
+    openSec(id) {
+      this.menuSection = this.menuSection === id ? '' : id;
+    },
+    toast: '',
+    _t: null,
+
+    // ===== 1. RADAR =====
+    q: '',
+    budget: 1000000,
+    searched: false,
+    sq: '',
+    sb: 1000000,
+    mode: 'berburu',
+    linksBerburu: [],
+    linksPasar: [],
+
+    cari() {
+      const q = this.q.trim();
+      if (!q) { this.notify('Isi nama barang dulu ya'); return; }
+      const b = Math.max(0, Math.round(+this.budget || 0));
+      const e = encodeURIComponent(q);
+      this.sq = q;
+      this.sb = b;
+      this.linksBerburu = [
+        { n: 'Carousell', d: 'Terbaru, maks. budget', u: `https://www.carousell.co.id/search/${e}/?price_end=${b}&sort_by=time_created%2Cdescending` },
+        { n: 'Facebook Marketplace', d: 'Terbaru, maks. budget', u: `https://www.facebook.com/marketplace/search/?query=${e}&maxPrice=${b}&sortBy=creation_time_descend` },
+        { n: 'OLX Indonesia', d: 'Iklan bekas terbaru (cek harga manual)', u: `https://www.olx.co.id/items/q-${e}` },
+      ];
+      this.linksPasar = [
+        { n: 'Tokopedia', d: 'Harga baru · produk terlaris', u: `https://www.tokopedia.com/search?st=product&q=${e}&ob=5` },
+        { n: 'Shopee', d: 'Harga baru · produk terlaris', u: `https://shopee.co.id/search?keyword=${e}&sortBy=sales` },
+        { n: 'Carousell', d: 'Harga bekas · termurah ke termahal', u: `https://www.carousell.co.id/search/${e}/?sort_by=price%2Cascending` },
+        { n: 'Facebook Marketplace', d: 'Harga bekas · termurah ke termahal', u: `https://www.facebook.com/marketplace/search/?query=${e}&sortBy=price_ascend` },
+      ];
+      this.searched = true;
+      this.mode = 'berburu';
+    },
+
+    get activeLinks() { return this.mode === 'berburu' ? this.linksBerburu : this.linksPasar; },
+
+    // ===== 2. KALKULATOR =====
+    kb: null,
+    kbaru: null,
+    ksec: null,
+    kadm: 6,
+
+    get calc() {
+      const beli = +this.kb || 0;
+      const baru = +this.kbaru || 0;
+      const sec = +this.ksec || 0;
+      const adm = (+this.kadm || 0) / 100;
+
+      const diskon = baru > 0 ? ((baru - sec) / baru) * 100 : 0;
+      const netJual = sec * (1 - adm);
+      const cuan = netJual - beli;
+      const roi = beli > 0 ? (cuan / beli) * 100 : 0;
+
+      let status, cls;
+      if (roi > 25) { status = 'GAS BELI (Cuan Tebal)'; cls = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'; }
+      else if (roi >= 15) { status = 'LUMAYAN'; cls = 'bg-amber-500/15 text-amber-300 border-amber-500/40'; }
+      else { status = 'SKIP'; cls = 'bg-rose-500/15 text-rose-300 border-rose-500/40'; }
+
+      const hargaM2 = sec * 0.9;
+      const bep = adm < 1 ? beli / (1 - adm) : 0;
+
+      return {
+        diskon, netJual, cuan, roi, status, cls,
+        m1: { harga: sec, cuan },
+        m2: { harga: hargaM2, cuan: hargaM2 * (1 - adm) - beli },
+        m3: { harga: bep, cuan: bep * (1 - adm) - beli },
+        valid: beli > 0 && sec > 0,
+      };
+    },
+
+    // ===== 3. NEGO & COPY =====
+    nBuka: null,
+    nTawar: null,
+    dNama: '',
+    dKondisi: null,
+    dKelengkapan: '',
+    dMinus: '',
+
+    get saranTawar() { return Math.round((+this.nBuka || 0) * 0.8 / 1000) * 1000; },
+    get hargaTawar() { return +this.nTawar || this.saranTawar; },
+
+    get tplSadis() {
+      return `Halo kak, barangnya masih ada? Nego terakhir ya, saya ambil HARI INI langsung transfer di angka ${rp(this.hargaTawar)}. Kalau oke, saya TF sekarang juga dan barang langsung diambil/dikirim.`;
+    },
+    get tplHalus() {
+      return `Halo kak, barangnya masih mulus kan ya? Boleh tahu kondisi detailnya dan ada minus apa saja? Kalau sesuai, saya tertarik di angka ${rp(this.hargaTawar)}. Terima kasih banyak kak 🙏`;
+    },
+    get tplCOD() {
+      return `Kak, saya bisa COD langsung hari ini (lokasi sekitar kakak). Saya ambil di angka ${rp(this.hargaTawar)} cash ya. Kalau deal, kita atur jam ketemuannya kak.`;
+    },
+
+    get judulIklan() {
+      const n = (this.dNama || 'Barang').trim();
+      const parts = [n, 'Second', this.dKondisi ? `Kondisi ${this.dKondisi}%` : '', this.dKelengkapan.trim() ? 'Fullset' : '', 'Original Mulus | Murah Nego'];
+      return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ');
+    },
+    get deskripsiIklan() {
+      return [
+        `🔥 JUAL ${(this.dNama || 'BARANG').toUpperCase()} SECOND 🔥`,
+        '',
+        `✅ Kondisi fisik: ${this.dKondisi ? this.dKondisi + '%' : '-'} (mulus, pemakaian wajar)`,
+        `✅ Kelengkapan: ${this.dKelengkapan.trim() || '-'}`,
+        `⚠️ Minus: ${this.dMinus.trim() || 'Tidak ada minus, sesuai foto'}`,
+        '',
+        '📸 Foto asli, barang bisa dicek langsung.',
+        '🤝 Bisa COD area setempat atau Rekber (Bebas Ongkir).',
+        '💬 Nego sopan, chat langsung ya kak.',
+      ].join('\n');
+    },
+
+    // ===== 4. ANTI-SCAM =====
+    checks: [
+      { id: 'rekber', label: 'Transaksi via Rekber / COD ketemu langsung', w: 25, on: false, warn: 'Wajib pakai Rekber atau COD. Jangan transfer langsung ke rekening pribadi.' },
+      { id: 'foto', label: 'Foto asli & multi-angle (bisa minta video)', w: 20, on: false, warn: 'Minta foto/video tambahan (sisi belakang, label, dan detail minus) sebelum bayar.' },
+      { id: 'harga', label: 'Harga masuk akal (tidak jauh di bawah pasaran)', w: 20, on: false, warn: 'Harga terlalu murah biasanya umpan. Cek harga pasaran dulu di menu Radar.' },
+      { id: 'akun', label: 'Riwayat akun jelas (testimoni / umur akun)', w: 20, on: false, warn: 'Cek testimoni, rating, dan umur akun. Akun baru tanpa riwayat sering bermasalah.' },
+      { id: 'tanya', label: 'Penjual menjawab detail & tidak mendesak', w: 15, on: false, warn: 'Waspada jika penjual mendesak transfer cepat atau menghindari pertanyaan.' },
+    ],
+    get skor() { return this.checks.reduce((a, c) => a + (c.on ? c.w : 0), 0); },
+    get levelRisiko() {
+      const s = this.skor;
+      if (s >= 80) return { t: 'AMAN', d: 'Risiko rendah. Tetap cek barang sebelum bayar.', cls: 'text-emerald-300', bar: 'bg-emerald-500' };
+      if (s >= 50) return { t: 'HATI-HATI', d: 'Risiko sedang. Lengkapi checklist yang belum terpenuhi.', cls: 'text-amber-300', bar: 'bg-amber-500' };
+      return { t: 'BAHAYA TINGGI', d: 'Jangan transfer dulu! Risiko penipuan besar.', cls: 'text-rose-300', bar: 'bg-rose-500' };
+    },
+    get peringatan() { return this.checks.filter(c => !c.on).map(c => c.warn); },
+
+    // ===== 5. CEK FOTO (Gemini -> Google) =====
+    geminiKey: localStorage.getItem(GKEY) || '',
+    showKey: false,
+    fotoPreview: '',
+    fotoB64: '',
+    loadingFoto: false,
+    namaProduk: '',
+    linkGoogle: '',
+    errFoto: '',
+
+    simpanKey() {
+      localStorage.setItem(GKEY, this.geminiKey.trim());
+      this.notify('API key disimpan di perangkat ini ✅');
+    },
+
+    pilihFoto(ev) {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const max = 1024;
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.round(img.width * s);
+          c.height = Math.round(img.height * s);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          const url = c.toDataURL('image/jpeg', 0.85);
+          this.fotoPreview = url;
+          this.fotoB64 = url.split(',')[1];
+          this.namaProduk = '';
+          this.linkGoogle = '';
+          this.errFoto = '';
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(f);
+      ev.target.value = '';
+    },
+
+    resetFoto() {
+      this.fotoPreview = '';
+      this.fotoB64 = '';
+      this.namaProduk = '';
+      this.linkGoogle = '';
+      this.errFoto = '';
+    },
+
+    async cariModel(key) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+        if (!r.ok) return GEMINI_FALLBACK;
+        const d = await r.json();
+        const list = (d.models || [])
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => m.name.replace('models/', ''))
+          .filter(n => /flash/.test(n) && !/image|tts|live|embed|preview|exp/.test(n))
+          .sort((a, b) => b.localeCompare(a));
+        return list.length ? list : GEMINI_FALLBACK;
+      } catch (e) {
+        return GEMINI_FALLBACK;
+      }
+    },
+
+    async generate() {
+      this.errFoto = '';
+      this.namaProduk = '';
+      this.linkGoogle = '';
+      if (!this.fotoB64) { this.notify('Upload foto dulu'); return; }
+      const apiKey = this.geminiKey.trim();
+      if (!apiKey) { this.errFoto = 'Isi API key Gemini dulu di menu ☰ (pojok kanan atas).'; return; }
+
+      // Buka tab kosong dulu saat tombol ditekan, supaya tidak diblokir browser
+      const tab = window.open('about:blank', '_blank');
+      this.loadingFoto = true;
+      try {
+        const key = encodeURIComponent(apiKey);
+        const models = await this.cariModel(key);
+        const body = JSON.stringify({
+          contents: [{ parts: [{ text: GEMINI_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: this.fotoB64 } }] }],
+          generationConfig: { temperature: 0.2 },
+        });
+
+        let res = null;
+        let lastErr = '';
+        for (const model of models) {
+          const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          });
+          if (r.ok) { res = r; break; }
+          const t = await r.text();
+          lastErr = `HTTP ${r.status} (${model}) ${t.slice(0, 160)}`;
+          if (![404, 429, 500, 503].includes(r.status)) break;
+          await new Promise(s => setTimeout(s, 1500));
+        }
+        if (!res) throw new Error(lastErr || 'tidak ada model yang tersedia');
+
+        const data = await res.json();
+        const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+        const raw = parts.map(p => p.text || '').join('').replace(/```json|```/g, '');
+        const i1 = raw.indexOf('{');
+        const i2 = raw.lastIndexOf('}');
+        if (i1 < 0 || i2 < 0) throw new Error('format jawaban tidak sesuai, coba lagi');
+        const h = JSON.parse(raw.slice(i1, i2 + 1));
+
+        const nama = String(h.nama_pencarian || '').trim();
+        if (!nama) throw new Error('produk tidak dikenali');
+        this.namaProduk = nama;
+        this.linkGoogle = 'https://www.google.com/search?q=' + encodeURIComponent(nama + ' spesifikasi harga bekas Indonesia');
+
+        if (tab) { tab.location.href = this.linkGoogle; }
+        else { window.open(this.linkGoogle, '_blank'); }
+      } catch (e) {
+        if (tab) tab.close();
+        this.errFoto = 'Gagal: ' + (e.message || e) + '. Cek API key, koneksi, atau kuota harian.';
+      } finally {
+        this.loadingFoto = false;
+      }
+    },
+
+    // ===== 6. LOG MODAL =====
+    items: Array.isArray(saved.items) ? saved.items : [],
+    fNama: '',
+    fBeli: null,
+    fTgl: new Date().toISOString().slice(0, 10),
+
+    get terpakai() { return this.items.reduce((a, i) => a + (+i.beli || 0), 0); },
+    get cashMasuk() { return this.items.filter(i => i.status === 'terjual').reduce((a, i) => a + (+i.laku || 0), 0); },
+    get sisaTunai() { return this.MODAL - this.terpakai + this.cashMasuk; },
+    get totalCuan() {
+      return this.items.filter(i => i.status === 'terjual').reduce((a, i) => a + ((+i.laku || 0) - (+i.beli || 0)), 0);
+    },
+    get itemsSorted() {
+      return [...this.items].sort((a, b) => (a.status === b.status ? b.id - a.id : a.status === 'ada' ? -1 : 1));
+    },
+
+    tambahBarang() {
+      const nama = this.fNama.trim();
+      const beli = Math.round(+this.fBeli || 0);
+      if (!nama || beli <= 0) { this.notify('Isi nama & harga beli dengan benar'); return; }
+      if (beli > this.sisaTunai) this.notify('Peringatan: melebihi sisa uang tunai!');
+      this.items.push({ id: Date.now(), nama, beli, tgl: this.fTgl, status: 'ada', laku: 0, tglJual: '' });
+      this.fNama = '';
+      this.fBeli = null;
+      this.save();
+      this.notify('Barang ditambahkan ✅');
+    },
+
+    tandaiTerjual(item) {
+      const v = prompt(`Harga laku untuk "${item.nama}" (beli ${rp(item.beli)}):`, '');
+      if (v === null) return;
+      const laku = Math.round(toNum(v));
+      if (laku <= 0) { this.notify('Harga laku tidak valid'); return; }
+      item.status = 'terjual';
+      item.laku = laku;
+      item.tglJual = new Date().toISOString().slice(0, 10);
+      this.save();
+      this.notify(`Profit: ${rp(laku - item.beli)}`);
+    },
+
+    kembalikanAda(item) {
+      item.status = 'ada';
+      item.laku = 0;
+      item.tglJual = '';
+      this.save();
+    },
+
+    hapusBarang(item) {
+      if (!confirm(`Hapus "${item.nama}" dari log?`)) return;
+      this.items = this.items.filter(i => i.id !== item.id);
+      this.save();
+    },
+
+    save() {
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ items: this.items, modalAwal: this.modalAwal, savedAt: new Date().toISOString() }));
+      } catch (e) {
+        this.notify('Gagal menyimpan (penyimpanan penuh?)');
+      }
+    },
+
+    exportBackup() {
+      const data = { app: 'Flip Radar Pro', version: 1, exportedAt: new Date().toISOString(), modal: this.MODAL, items: this.items };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `flipradar-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      this.notify('Backup diunduh 💾');
+    },
+
+    importBackup(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          const list = Array.isArray(data) ? data : data.items;
+          if (!Array.isArray(list)) throw new Error('format');
+          const clean = list
+            .filter(i => i && typeof i.nama === 'string')
+            .map((i, idx) => ({
+              id: i.id || Date.now() + idx,
+              nama: i.nama,
+              beli: +i.beli || 0,
+              tgl: i.tgl || '',
+              status: i.status === 'terjual' ? 'terjual' : 'ada',
+              laku: +i.laku || 0,
+              tglJual: i.tglJual || '',
+            }));
+          if (!confirm(`Ganti data saat ini dengan ${clean.length} item dari backup?`)) return;
+          this.items = clean;
+          this.save();
+          this.notify('Backup berhasil dipulihkan ✅');
+        } catch (e) {
+          this.notify('File backup tidak valid');
+        }
+      };
+      reader.readAsText(file);
+      ev.target.value = '';
+    },
+
+    resetSemua() {
+      if (!confirm('Hapus SEMUA data log? Tidak bisa dikembalikan kecuali dari backup.')) return;
+      this.items = [];
+      this.save();
+      this.notify('Data direset');
+    },
+
+    setModal(v) {
+      const n = Math.round(Number(String(v == null ? '' : v).replace(/[^\d]/g, '')) || 0);
+      if (n <= 0) { this.notify('Modal harus lebih dari 0'); return; }
+      this.modalAwal = n;
+      this.modalInput = null;
+      this.save();
+      this.notify('Modal awal disimpan ✅');
+    },
+
+    // ===== UTIL =====
+    notify(msg) {
+      this.toast = msg;
+      clearTimeout(this._t);
+      this._t = setTimeout(() => (this.toast = ''), 2200);
+    },
+
+    copy(text) {
+      const fallback = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        ta.remove();
+        this.notify(ok ? 'Tersalin ✅' : 'Gagal menyalin, salin manual ya');
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => this.notify('Tersalin ✅')).catch(fallback);
+      } else {
+        fallback();
+      }
+    },
+  };
+}
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.14.1/cdn.min.js"></script>
+</head>
+
+<body class="text-slate-100 antialiased">
+<div x-data="app()" x-cloak class="min-h-screen pb-28">
+
+  <!-- HEADER + TAB -->
+  <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800">
+    <div class="max-w-md mx-auto px-4 pt-4 pb-2 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-extrabold tracking-tight">
+          <span class="text-indigo-400">Flip Radar</span> <span class="text-emerald-400">Pro</span>
+        </h1>
+        <p class="text-[11px] text-slate-400">Cari, hitung, nego, dan catat cuan</p>
+      </div>
+      <div class="flex items-center gap-3">
+      <div class="text-right">
+        <p class="text-[10px] uppercase tracking-wider text-slate-500">Sisa Tunai</p>
+        <p class="text-sm font-bold text-emerald-300" x-text="rp(sisaTunai)"></p>
+      </div>
+      <button type="button" @click="menuOpen = true" aria-label="Menu"
+        class="w-10 h-10 shrink-0 rounded-xl bg-slate-800 hover:bg-slate-700 text-lg">☰</button>
+      </div>
+    </div>
+    <nav class="max-w-md mx-auto px-3 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+      <template x-for="t in tabs" :key="t.id">
+        <button type="button" @click="tab = t.id"
+          class="shrink-0 px-3.5 py-2 rounded-xl text-sm font-semibold transition"
+          :class="tab === t.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-slate-800/70 text-slate-300 hover:bg-slate-800'"
+          x-text="t.n"></button>
+      </template>
+    </nav>
+  </header>
+
+  <main class="max-w-md mx-auto px-4 pt-5 space-y-5">
+
+    <!-- ============ 1. RADAR ============ -->
+    <section x-show="tab === 'radar'" x-transition.opacity class="space-y-5">
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">🎯 Radar Pencarian</h2>
+        <div>
+          <label class="text-xs text-slate-400">Nama barang</label>
+          <input type="text" x-model="q" @keydown.enter="cari()" placeholder="contoh: Sony WH-1000XM3"
+            class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Batas harga maksimal</label>
+          <input type="number" inputmode="numeric" x-model.number="budget"
+            class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          <p class="text-[11px] text-slate-500 mt-1" x-text="'Budget: ' + rp(budget)"></p>
+        </div>
+        <button type="button" @click="cari()"
+          class="w-full rounded-xl bg-indigo-500 hover:bg-indigo-400 active:scale-[0.99] py-3 font-bold transition">
+          Cari Sekarang
+        </button>
+      </div>
+
+      <template x-if="searched">
+        <div class="space-y-4">
+          <div class="flex gap-2 p-1 rounded-xl bg-slate-900 border border-slate-800">
+            <button type="button" @click="mode = 'berburu'"
+              class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
+              :class="mode === 'berburu' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'">🏹 Mode Berburu</button>
+            <button type="button" @click="mode = 'pasar'"
+              class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
+              :class="mode === 'pasar' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'">📊 Mode Cek Pasar</button>
+          </div>
+
+          <p class="text-xs text-slate-400 px-1" x-show="mode === 'berburu'">
+            Barang bekas <span class="text-slate-200" x-text="sq"></span> terbaru dan di bawah <span class="text-slate-200" x-text="rp(sb)"></span>.
+          </p>
+          <p class="text-xs text-slate-400 px-1" x-show="mode === 'pasar'">
+            Harga pasaran baru dan bekas untuk <span class="text-slate-200" x-text="sq"></span>.
+          </p>
+
+          <div class="grid grid-cols-1 gap-3">
+            <template x-for="l in activeLinks" :key="l.n">
+              <a :href="l.u" target="_blank" rel="noopener"
+                class="flex items-center justify-between rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500 p-4 transition">
+                <div>
+                  <p class="font-bold" x-text="l.n"></p>
+                  <p class="text-xs text-slate-400" x-text="l.d"></p>
+                </div>
+                <span class="text-indigo-400 text-xl">↗</span>
+              </a>
+            </template>
+          </div>
+          <p class="text-[11px] text-slate-500 px-1">
+            Pakai Mode Cek Pasar untuk menentukan harga beli dan target jual sebelum masuk ke Kalkulator.
+          </p>
+        </div>
+      </template>
+    </section>
+
+    <!-- ============ 2. KALKULATOR ============ -->
+    <section x-show="tab === 'calc'" x-transition.opacity class="space-y-5">
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">🧮 Kalkulator Cuan</h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2">
+            <label class="text-xs text-slate-400">Harga beli</label>
+            <input type="number" inputmode="numeric" x-model.number="kb" placeholder="0"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Harga baru (pasaran)</label>
+            <input type="number" inputmode="numeric" x-model.number="kbaru" placeholder="0"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Second normal</label>
+            <input type="number" inputmode="numeric" x-model.number="ksec" placeholder="0"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div class="col-span-2">
+            <label class="text-xs text-slate-400">Potongan admin / packing (%)</label>
+            <input type="number" inputmode="decimal" x-model.number="kadm"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+      </div>
+
+      <template x-if="calc.valid">
+        <div class="space-y-4">
+          <div class="rounded-2xl border p-4 text-center font-extrabold tracking-wide" :class="calc.cls" x-text="calc.status"></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+              <p class="text-[11px] uppercase text-slate-500">Diskon vs baru</p>
+              <p class="text-xl font-bold" x-text="pct(calc.diskon)"></p>
+            </div>
+            <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+              <p class="text-[11px] uppercase text-slate-500">ROI</p>
+              <p class="text-xl font-bold text-emerald-300" x-text="pct(calc.roi)"></p>
+            </div>
+            <div class="col-span-2 rounded-2xl bg-slate-900 border border-slate-800 p-4">
+              <p class="text-[11px] uppercase text-slate-500">Net Profit (Cuan Bersih)</p>
+              <p class="text-2xl font-extrabold" :class="calc.cuan >= 0 ? 'text-emerald-300' : 'text-rose-300'" x-text="rp(calc.cuan)"></p>
+              <p class="text-xs text-slate-500 mt-1">Dana bersih setelah potongan admin: <span x-text="rp(calc.netJual)"></span></p>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+            <h3 class="font-bold">📉 Strategi Time-Decay</h3>
+            <div class="rounded-xl bg-slate-950 p-3 border-l-4 border-emerald-500">
+              <p class="text-xs text-emerald-300 font-semibold">Minggu 1 · Target Cuan Maksimal</p>
+              <p class="text-sm">Jual di <b x-text="rp(calc.m1.harga)"></b> → cuan <span x-text="rp(calc.m1.cuan)"></span></p>
+            </div>
+            <div class="rounded-xl bg-slate-950 p-3 border-l-4 border-amber-400">
+              <p class="text-xs text-amber-300 font-semibold">Minggu 2 · Diskon 10%</p>
+              <p class="text-sm">Turunkan ke <b x-text="rp(calc.m2.harga)"></b> → cuan <span x-text="rp(calc.m2.cuan)"></span></p>
+            </div>
+            <div class="rounded-xl bg-slate-950 p-3 border-l-4 border-rose-500">
+              <p class="text-xs text-rose-300 font-semibold">Minggu 3 · Harga Balik Modal (BEP)</p>
+              <p class="text-sm">Minimal <b x-text="rp(calc.m3.harga)"></b> → cuan <span x-text="rp(calc.m3.cuan)"></span></p>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="!calc.valid" class="text-sm text-slate-500 text-center">Isi harga beli dan second normal untuk melihat hasil.</p>
+    </section>
+
+    <!-- ============ 3. NEGO & COPY ============ -->
+    <section x-show="tab === 'nego'" x-transition.opacity class="space-y-5">
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">💬 Generator Chat Nego</h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-400">Harga buka seller</label>
+            <input type="number" inputmode="numeric" x-model.number="nBuka" placeholder="0"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Harga tawar kita</label>
+            <input type="number" inputmode="numeric" x-model.number="nTawar" :placeholder="saranTawar || 0"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-500">Kosongkan harga tawar untuk memakai saran 80% dari harga buka: <span class="text-slate-300" x-text="rp(saranTawar)"></span></p>
+
+        <div class="space-y-3 pt-1">
+          <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-bold text-rose-300">🔥 Nego Sadis (Transfer Hari Ini)</p>
+              <button type="button" @click="copy(tplSadis)" class="text-xs px-3 py-1.5 rounded-lg bg-rose-500 text-white font-semibold">Copy</button>
+            </div>
+            <p class="text-sm text-slate-300 whitespace-pre-line" x-text="tplSadis"></p>
+          </div>
+          <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-bold text-sky-300">🤝 Nego Halus (Tanya Kondisi/Minus)</p>
+              <button type="button" @click="copy(tplHalus)" class="text-xs px-3 py-1.5 rounded-lg bg-sky-500 text-white font-semibold">Copy</button>
+            </div>
+            <p class="text-sm text-slate-300 whitespace-pre-line" x-text="tplHalus"></p>
+          </div>
+          <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-bold text-emerald-300">🛵 Nego COD Langsung</p>
+              <button type="button" @click="copy(tplCOD)" class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-semibold">Copy</button>
+            </div>
+            <p class="text-sm text-slate-300 whitespace-pre-line" x-text="tplCOD"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">✍️ Generator Deskripsi Jualan</h2>
+        <div>
+          <label class="text-xs text-slate-400">Nama barang</label>
+          <input type="text" x-model="dNama" placeholder="contoh: iPhone 11 128GB"
+            class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-400">Kondisi fisik (%)</label>
+            <input type="number" inputmode="numeric" x-model.number="dKondisi" placeholder="90"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Kelengkapan</label>
+            <input type="text" x-model="dKelengkapan" placeholder="dus, charger"
+              class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Minus</label>
+          <input type="text" x-model="dMinus" placeholder="baret halus di sudut layar"
+            class="mt-1 w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs text-slate-400">Judul iklan (SEO)</p>
+            <button type="button" @click="copy(judulIklan)" class="text-xs px-3 py-1 rounded-lg bg-indigo-500 text-white font-semibold">Copy</button>
+          </div>
+          <p class="text-sm font-semibold" x-text="judulIklan"></p>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-slate-800 p-3">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs text-slate-400">Deskripsi jualan</p>
+            <button type="button" @click="copy(deskripsiIklan)" class="text-xs px-3 py-1 rounded-lg bg-indigo-500 text-white font-semibold">Copy</button>
+          </div>
+          <p class="text-sm text-slate-300 whitespace-pre-line" x-text="deskripsiIklan"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. ANTI-SCAM ============ -->
+    <section x-show="tab === 'scam'" x-transition.opacity class="space-y-5">
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-4">
+        <div class="flex items-end justify-between">
+          <div>
+            <h2 class="font-bold text-base">🛡️ Detektor Anti-Scam</h2>
+            <p class="text-xs text-slate-400">Centang yang sudah terpenuhi</p>
+          </div>
+          <p class="text-3xl font-extrabold" :class="levelRisiko.cls" x-text="skor + '%'"></p>
+        </div>
+        <div class="h-3 w-full rounded-full bg-slate-800 overflow-hidden">
+          <div class="h-full transition-all duration-300" :class="levelRisiko.bar" :style="'width:' + skor + '%'"></div>
+        </div>
+        <p class="text-sm font-bold" :class="levelRisiko.cls" x-text="levelRisiko.t"></p>
+        <p class="text-xs text-slate-400" x-text="levelRisiko.d"></p>
+
+        <div class="space-y-2">
+          <template x-for="c in checks" :key="c.id">
+            <label class="flex items-start gap-3 rounded-xl bg-slate-950 border border-slate-800 p-3 cursor-pointer hover:border-slate-600">
+              <input type="checkbox" x-model="c.on" class="mt-1 h-5 w-5 accent-emerald-500 shrink-0">
+              <span class="flex-1">
+                <span class="block text-sm" x-text="c.label"></span>
+                <span class="text-[11px] text-slate-500">Bobot +<span x-text="c.w"></span>%</span>
+              </span>
+            </label>
+          </template>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-2">
+        <h3 class="font-bold">⚠️ Peringatan Risiko</h3>
+        <template x-if="peringatan.length === 0">
+          <p class="text-sm text-emerald-300">Semua checklist terpenuhi. Tetap cek barang fisik sebelum bayar.</p>
+        </template>
+        <template x-for="p in peringatan" :key="p">
+          <div class="text-sm text-rose-200 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3" x-text="'• ' + p"></div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ============ 5. CEK FOTO ============ -->
+    <section x-show="tab === 'foto'" x-transition.opacity class="space-y-5">
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">📷 Cek Foto Produk</h2>
+        <p class="text-xs text-slate-400">Upload foto produk, lalu tekan Generate. Gemini mengenali produknya, lalu Google terbuka dengan pencarian spek dan harga bekas.</p>
+        <label class="block rounded-xl border-2 border-dashed border-slate-700 hover:border-indigo-500 p-5 text-center cursor-pointer">
+          <span class="text-sm text-slate-300">📁 Pilih foto produk</span>
+          <input type="file" accept="image/*" class="hidden" @change="pilihFoto($event)">
+        </label>
+        <template x-if="fotoPreview">
+          <img :src="fotoPreview" alt="Foto produk" class="w-full max-h-72 object-contain rounded-xl bg-slate-950 border border-slate-800">
+        </template>
+        <button type="button" @click="generate()" :disabled="loadingFoto"
+          class="w-full rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 py-3 font-bold transition"
+          x-text="loadingFoto ? 'Sedang mengenali produk...' : 'Generate'"></button>
+        <p x-show="errFoto" class="text-sm text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3" x-text="errFoto"></p>
+
+        <template x-if="namaProduk">
+          <div class="rounded-xl bg-slate-950 border border-slate-800 p-3 space-y-2">
+            <p class="text-[11px] uppercase text-slate-500">Produk terdeteksi</p>
+            <p class="font-semibold" x-text="namaProduk"></p>
+            <a :href="linkGoogle" target="_blank" rel="noopener"
+              class="block w-full text-center rounded-xl bg-emerald-500 text-slate-950 py-2.5 font-semibold text-sm">Buka hasil Google</a>
+            <p class="text-[11px] text-slate-500">Tombol ini untuk jaga-jaga kalau tab Google tadi diblokir browser.</p>
+          </div>
+        </template>
+
+        <button x-show="fotoPreview" type="button" @click="resetFoto()" class="w-full text-xs text-slate-400 py-2">Ganti foto</button>
+      </div>
+
+      <p class="text-xs text-slate-500 text-center">API key Gemini diatur di menu ☰ (pojok kanan atas).</p>
+    </section>
+
+    <!-- ============ 6. LOG MODAL ============ -->
+    <section x-show="tab === 'log'" x-transition.opacity class="space-y-5">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2 rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-2">
+          <p class="text-[11px] uppercase text-slate-500">Modal Awal (bisa kamu isi sendiri)</p>
+          <div class="flex gap-2">
+            <input type="number" inputmode="numeric" x-model.number="modalInput" :placeholder="MODAL"
+              class="flex-1 min-w-0 rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+            <button type="button" @click="setModal(modalInput)" class="px-4 rounded-xl bg-emerald-500 text-slate-950 text-sm font-bold">Simpan</button>
+          </div>
+          <p class="text-xs text-slate-500" x-text="'Modal saat ini: ' + rp(MODAL)"></p>
+        </div>
+        <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+          <p class="text-[11px] uppercase text-slate-500">Modal Terpakai</p>
+          <p class="font-bold text-amber-300" x-text="rp(terpakai)"></p>
+        </div>
+        <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+          <p class="text-[11px] uppercase text-slate-500">Sisa Uang Tunai</p>
+          <p class="font-bold text-sky-300" x-text="rp(sisaTunai)"></p>
+        </div>
+        <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+          <p class="text-[11px] uppercase text-slate-500">Total Cuan Bersih</p>
+          <p class="font-bold" :class="totalCuan >= 0 ? 'text-emerald-300' : 'text-rose-300'" x-text="rp(totalCuan)"></p>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h2 class="font-bold text-base">➕ Tambah Barang Beli</h2>
+        <input type="text" x-model="fNama" placeholder="Nama barang"
+          class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        <div class="grid grid-cols-2 gap-3">
+          <input type="number" inputmode="numeric" x-model.number="fBeli" placeholder="Harga beli"
+            class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+          <input type="date" x-model="fTgl"
+            class="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+        </div>
+        <button type="button" @click="tambahBarang()"
+          class="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-2.5 font-bold transition">Simpan ke Log</button>
+      </div>
+
+      <div class="space-y-3">
+        <h2 class="font-bold text-base px-1">📦 Daftar Barang</h2>
+        <template x-if="items.length === 0">
+          <p class="text-sm text-slate-500 text-center py-6">Belum ada barang. Tambahkan barang beli pertamamu di atas.</p>
+        </template>
+        <template x-for="it in itemsSorted" :key="it.id">
+          <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="font-bold truncate" x-text="it.nama"></p>
+                <p class="text-xs text-slate-500" x-text="'Beli ' + rp(it.beli) + (it.tgl ? ' · ' + it.tgl : '')"></p>
+              </div>
+              <span class="shrink-0 text-[11px] font-bold px-2 py-1 rounded-lg"
+                :class="it.status === 'terjual' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'"
+                x-text="it.status === 'terjual' ? 'TERJUAL' : 'ADA'"></span>
+            </div>
+
+            <template x-if="it.status === 'terjual'">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-400">Laku <span class="text-slate-200" x-text="rp(it.laku)"></span></span>
+                <span class="font-bold" :class="(it.laku - it.beli) >= 0 ? 'text-emerald-300' : 'text-rose-300'"
+                  x-text="'Profit ' + rp(it.laku - it.beli)"></span>
+              </div>
+            </template>
+
+            <div class="flex gap-2 pt-1">
+              <template x-if="it.status === 'ada'">
+                <button type="button" @click="tandaiTerjual(it)"
+                  class="flex-1 rounded-lg bg-emerald-500 text-slate-950 text-sm font-semibold py-2">Tandai Terjual</button>
+              </template>
+              <template x-if="it.status === 'terjual'">
+                <button type="button" @click="kembalikanAda(it)"
+                  class="flex-1 rounded-lg bg-slate-800 text-slate-200 text-sm font-semibold py-2">Batalkan Terjual</button>
+              </template>
+              <button type="button" @click="hapusBarang(it)"
+                class="px-3 rounded-lg bg-rose-500/15 text-rose-300 text-sm font-semibold py-2">Hapus</button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+        <h3 class="font-bold">💾 Backup Data</h3>
+        <p class="text-xs text-slate-400">Data tersimpan otomatis di perangkat ini. Export sebagai cadangan, Import untuk memulihkan.</p>
+        <div class="grid grid-cols-2 gap-3">
+          <button type="button" @click="exportBackup()"
+            class="rounded-xl bg-indigo-500 hover:bg-indigo-400 py-2.5 font-semibold text-sm">Export Backup (.json)</button>
+          <label class="rounded-xl bg-slate-800 hover:bg-slate-700 py-2.5 font-semibold text-sm text-center cursor-pointer">
+            Import Backup
+            <input type="file" accept="application/json,.json" class="hidden" @change="importBackup($event)">
+          </label>
+        </div>
+        <button type="button" @click="resetSemua()" class="w-full text-xs text-rose-400 py-2">Reset semua data log</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ MENU ============ -->
+  <div x-show="menuOpen" x-cloak x-transition.opacity @click="menuOpen = false"
+    class="fixed inset-0 z-40 bg-black/60"></div>
+  <div x-show="menuOpen" x-cloak x-transition
+    class="fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-slate-900 border-t border-slate-800 p-5">
+    <div class="max-w-md mx-auto space-y-5 py-4 pb-8">
+      <div class="flex items-center justify-between pb-1">
+        <h2 class="text-lg font-extrabold"><span class="text-indigo-400">Flip Radar</span> <span class="text-emerald-400">Pro</span></h2>
+        <button type="button" @click="menuOpen = false" aria-label="Tutup" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700">✕</button>
+      </div>
+
+      <!-- Author -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('author')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">👤 Author</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'author' ? '▲' : '▼'"></span>
+        </button>
+        <div x-show="menuSection === 'author'" x-transition.opacity class="px-3 pb-3 space-y-1 text-sm text-slate-300">
+          <p>Dibuat oleh: <b>Erka.Dev</b></p>
+          <p>Kontak:<br>erkanusa.dev@google.com | IG: erka.dev_</p>
+          <p>Kolaborasi, Konsultasi &amp; Request aplikasi: DM / Email</p>
+          <a href="https://sociabuzz.com/erkanusadev/support" target="_blank" rel="noopener"
+            class="block w-full text-center rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 py-2.5 font-semibold text-sm mt-2">☕ Dukung via Sociabuzz</a>
+          <p class="text-xs text-slate-500">Dibuat dengan bantuan Claude (Anthropic).</p>
+        </div>
+      </div>
+
+      <!-- Info Aplikasi -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('info')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">ℹ️ Info Aplikasi</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'info' ? '▲' : '▼'"></span>
+        </button>
+        <div x-show="menuSection === 'info'" x-transition.opacity class="px-3 pb-3 space-y-2 text-sm text-slate-300">
+          <p>Versi 2.0.23 · Dibuat untuk cuan modal minimal hasil maksimal</p>
+          <p>Aplikasi bantu jual-beli barang secondhand: cari harga, hitung cuan, nego, cek penipuan, dan catat modal.</p>
+        </div>
+      </div>
+
+      <!-- Cara Pakai -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('cara')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">📖 Cara Pakai Singkat</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'cara' ? '▲' : '▼'"></span>
+        </button>
+        <ul x-show="menuSection === 'cara'" x-transition.opacity class="px-3 pb-3 space-y-1 text-sm text-slate-300">
+          <li>• <b>Radar:</b> cari harga bekas dan baru di marketplace.</li>
+          <li>• <b>Kalkulator:</b> hitung ROI dan strategi turun harga.</li>
+          <li>• <b>Nego &amp; Copy:</b> buat chat nego dan deskripsi jualan.</li>
+          <li>• <b>Anti-Scam:</b> centang checklist sebelum transaksi.</li>
+          <li>• <b>Cek Foto:</b> upload foto, lalu Gemini mencari nama produk dan membuka hasil Google.</li>
+          <li>• <b>Log Modal:</b> catat barang beli dan jual, lalu lihat profit.</li>
+        </ul>
+      </div>
+
+      <!-- Data & Privasi -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('privasi')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">🔒 Data &amp; Privasi</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'privasi' ? '▲' : '▼'"></span>
+        </button>
+        <p x-show="menuSection === 'privasi'" x-transition.opacity class="px-3 pb-3 text-sm text-slate-300">Data log dan API key tersimpan di perangkat ini saja. Lakukan Export Backup secara berkala.</p>
+      </div>
+
+      <!-- Disclaimer -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('disclaimer')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">⚠️ Disclaimer</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'disclaimer' ? '▲' : '▼'"></span>
+        </button>
+        <p x-show="menuSection === 'disclaimer'" x-transition.opacity class="px-3 pb-3 text-sm text-slate-300">Harga dan spesifikasi dari AI atau pencarian Google bisa tidak akurat. Selalu cek langsung sebelum membeli atau menjual.</p>
+      </div>
+
+      <!-- API Key Gemini -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('apikey')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">🔑 API Key Gemini</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'apikey' ? '▲' : '▼'"></span>
+        </button>
+        <div x-show="menuSection === 'apikey'" x-transition.opacity class="px-3 pb-3 space-y-2">
+          <p class="text-xs text-slate-400">Buat key gratis di aistudio.google.com lalu Get API key. Key hanya disimpan di perangkat ini.</p>
+          <div class="flex gap-2">
+            <input :type="showKey ? 'text' : 'password'" x-model="geminiKey" placeholder="Tempel API key"
+              class="flex-1 min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 focus:outline-none focus:border-indigo-500">
+            <button type="button" @click="showKey = !showKey" class="px-3 rounded-xl bg-slate-800 text-sm">👁</button>
+            <button type="button" @click="simpanKey()" class="px-4 rounded-xl bg-emerald-500 text-slate-950 text-sm font-bold">Simpan</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup & Restore -->
+      <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+        <button type="button" @click="openSec('backup')" class="w-full flex items-center justify-between p-3 text-left">
+          <span class="font-semibold text-sm">💾 Backup &amp; Restore</span>
+          <span class="text-slate-400 text-xs" x-text="menuSection === 'backup' ? '▲' : '▼'"></span>
+        </button>
+        <div x-show="menuSection === 'backup'" x-transition.opacity class="px-3 pb-3 space-y-2">
+          <p class="text-xs text-slate-400">Export untuk cadangan, Import untuk memulihkan data log.</p>
+          <div class="grid grid-cols-2 gap-3">
+            <button type="button" @click="exportBackup()" class="rounded-xl bg-indigo-500 hover:bg-indigo-400 py-2.5 font-semibold text-sm">Export (.json)</button>
+            <label class="rounded-xl bg-slate-800 hover:bg-slate-700 py-2.5 font-semibold text-sm text-center cursor-pointer">
+              Import
+              <input type="file" accept="application/json,.json" class="hidden" @change="importBackup($event)">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->  <!-- TOAST -->
+  <div x-show="toast" x-transition.opacity x-cloak
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[90%] px-4 py-2.5 rounded-xl bg-slate-100 text-slate-900 text-sm font-semibold shadow-xl"
+    x-text="toast"></div>
+</div>
+</body>
+</html>
